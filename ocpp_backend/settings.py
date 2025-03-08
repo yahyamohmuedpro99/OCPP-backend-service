@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'chargers.apps.ChargersConfig',
+    # 'chargers'
 ]
 
 MIDDLEWARE = [
@@ -62,15 +63,11 @@ TEMPLATES = [
 # Django Channels configuration
 ASGI_APPLICATION = 'ocpp_backend.asgi.application'
 
-# Channel layers configuration for Redis
+# Channel layers configuration for in-memory backend
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [(os.getenv('REDIS_HOST', 'localhost'), 
-                      int(os.getenv('REDIS_PORT', 6379)))],
-        },
-    },
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
+    }
 }
 
 WSGI_APPLICATION = 'ocpp_backend.wsgi.application'
@@ -79,15 +76,14 @@ WSGI_APPLICATION = 'ocpp_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'djongo',
-        'NAME': os.getenv('DB_NAME', 'ocpp_db'),
+        'NAME': 'ocpp_db',
+        'ENFORCE_SCHEMA': False,
         'CLIENT': {
-            'host': os.getenv('DB_HOST', 'localhost'),
-            'port': int(os.getenv('DB_PORT', '27017')),
-            'username': os.getenv('DB_USER', ''),
-            'password': os.getenv('DB_PASSWORD', ''),
+            'host': 'mongodb://localhost:27017/', 
         }
     }
 }
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

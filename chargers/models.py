@@ -1,19 +1,21 @@
-from django.db import models
+from djongo import models
 from django.utils import timezone
 
 class Charger(models.Model):
-    id = models.CharField(max_length=100, primary_key=True)
-    status = models.CharField(max_length=50, default='Available')
+    charger_id = models.CharField(max_length=255, unique=True)
+    status = models.CharField(max_length=50, default='disconnected')
     last_heartbeat = models.DateTimeField(null=True)
-    vendor = models.CharField(max_length=255, null=True)
-    model = models.CharField(max_length=255, null=True)
-    serial_number = models.CharField(max_length=255, null=True)
-    firmware_version = models.CharField(max_length=50, null=True)
+    meter_value = models.FloatField(default=0.0)
+    vendor = models.CharField(max_length=100, null=True, blank=True)
+    model = models.CharField(max_length=100, null=True, blank=True)
+    serial_number = models.CharField(max_length=100, null=True, blank=True)
+    firmware_version = models.CharField(max_length=50, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f'Charger {self.id} ({self.status})'
+    class Meta:
+        abstract = False  
+        db_table = 'chargers'
 
     def update_heartbeat(self):
         self.last_heartbeat = timezone.now()

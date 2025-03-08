@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCPP Charger Simulator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .online { background-color: #4CAF50; color: white; }
+        .offline { background-color: #f44336; color: white; }
+        .charging { background-color: #2196F3; color: white; }
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 3px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #log {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 20px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>OCPP Charger Simulator</h1>
+    <div class="container">
+        <h2>Charger Status<span id="connectionStatus" class="status offline">Offline</span></h2>
+        <div>
+            <label for="chargerId">Charger ID:</label>
+            <input type="text" id="chargerId" value="TESTCHARGER001">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Actions</h2>
+        <button id="bootNotificationBtn" disabled>Boot Notification</button>
+        <button id="heartbeatBtn" disabled>Heartbeat</button>
+        <button id="startTransactionBtn" disabled>Start Transaction</button>
+        <button id="stopTransactionBtn" disabled>Stop Transaction</button>
+        <button id="authorizeBtn" disabled>Authorize</button>
+    </div>
+
+    <div class="container">
+        <h2>Transaction Status</h2>
+        <p>Current Transaction ID: <span id="transactionId">None</span></p>
+        <p>Charger Status: <span id="chargerStatus">Unknown</span></p>
+    </div>
+
+    <div class="container">
+        <h2>Message Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let transactionId = null;
+        let messageId = 1;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? 'red' : type === 'sent' ? 'blue' : 'black';
+            entry.textContent = `${new Date().toISOString()} - ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateButtons(connected) {
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+            document.getElementById('bootNotificationBtn').disabled = !connected;
+            document.getElementById('heartbeatBtn').disabled = !connected;
+            document.getElementById('startTransactionBtn').disabled = !connected || transactionId !== null;
+            document.getElementById('stopTransactionBtn').disabled = !connected || transactionId === null;
+            document.getElementById('authorizeBtn').disabled = !connected;
+        }
+
+        function connect() {
+            const chargerId = document.getElementById('chargerId').value;
+            if (!chargerId) {
+                log('Please enter a Charger ID', 'error');
+                return;
+            }
+    
+            const wsUrl = `ws://${window.location.host}/ws/ocpp/${chargerId}/`;
+            console.log('Attempting to connect to:', wsUrl);
+            ws = new WebSocket(wsUrl);
+    
+            ws.onopen = () => {
+                console.log('WebSocket connection opened');
+                log('WebSocket connection established successfully', 'success');
+                log(`Connected to server at ${wsUrl}`, 'success');
+                document.getElementById('connectionStatus').className = 'status online';
+                document.getElementById('connectionStatus').textContent = 'Online';
+                updateButtons(true);
+            };
+    
+            ws.onclose = (event) => {
+                console.log('WebSocket connection closed:', event);
+                log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`, 'error');
+                document.getElementById('connectionStatus').className = 'status offline';
+                document.getElementById('connectionStatus').textContent = 'Offline';
+                updateButtons(false);
+                ws = null;
+            };
+    
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                log('WebSocket error occurred:', 'error');
+                log(`Error details: ${error.message || 'No error message available'}`, 'error');
+                if (error.error) {
+                    log(`Additional error info: ${error.error.toString()}`, 'error');
+                }
+            };
+    
+            ws.onmessage = (event) => {
+                console.log('Received message:', event.data);
+                try {
+                    const response = JSON.parse(event.data);
+                    log(`Received message type: ${response[2] || 'Unknown'}`, 'info');
+                    log(`Full message: ${JSON.stringify(response)}`, 'info');
+                    
+                    if (response.error) {
+                        log(`Server error: ${response.error}`, 'error');
+                        return;
+                    }
+    
+                    // Handle transaction ID from server response
+                    if (response[2] && response[2].transactionId) {
+                        transactionId = response[2].transactionId;
+                        document.getElementById('transactionId').textContent = transactionId;
+                        document.getElementById('chargerStatus').textContent = 'Charging';
+                        updateButtons(true);
+                    }
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                    log(`Error parsing message: ${error}`, 'error');
+                }
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function sendMessage(action, payload = {}) {
+            if (!ws) {
+                log('Cannot send message - WebSocket connection not established', 'error');
+                return;
+            }
+            if (ws.readyState !== WebSocket.OPEN) {
+                log(`Cannot send message - WebSocket state is ${ws.readyState} (${getWebSocketState(ws.readyState)})`, 'error');
+                return;
+            }
+
+        function getWebSocketState(state) {
+            const states = {
+                0: 'CONNECTING',
+                1: 'OPEN',
+                2: 'CLOSING',
+                3: 'CLOSED'
+            };
+            return states[state] || 'UNKNOWN';
+        }
+            
+            const message = [2, String(messageId++), action, payload];
+            ws.send(JSON.stringify(message));
+            log(`Sent: ${JSON.stringify(message)}`, 'sent');
+        }
+
+        document.getElementById('connectBtn').onclick = connect;
+        document.getElementById('disconnectBtn').onclick = disconnect;
+
+        document.getElementById('bootNotificationBtn').onclick = () => {
+            sendMessage('BootNotification', {
+                chargePointVendor: 'Test Vendor',
+                chargePointModel: 'Test Model',
+                firmwareVersion: '1.0.0',
+                chargePointSerialNumber: 'SN123456'
+            });
+        };
+
+        document.getElementById('heartbeatBtn').onclick = () => {
+            sendMessage('Heartbeat', {});
+        };
+
+        document.getElementById('startTransactionBtn').onclick = () => {
+            sendMessage('StartTransaction', {
+                connectorId: 1,
+                idTag: 'TEST_TAG',
+                meterStart: 0,
+                timestamp: new Date().toISOString()
+            });
+        };
+
+        document.getElementById('stopTransactionBtn').onclick = () => {
+            if (transactionId === null) {
+                log('No active transaction', 'error');
+                return;
+            }
+            sendMessage('StopTransaction', {
+                transactionId: transactionId,
+                meterStop: 100,
+                timestamp: new Date().toISOString()
+            });
+            transactionId = null;
+            document.getElementById('transactionId').textContent = 'None';
+            document.getElementById('chargerStatus').textContent = 'Available';
+            updateButtons(true);
+        };
+
+        document.getElementById('authorizeBtn').onclick = () => {
+            sendMessage('Authorize', {
+                idTag: 'TEST_TAG'
+            });
+        };
+
+        // Handle window close
+        window.onbeforeunload = () => {
+            if (ws) {
+                ws.close();
+            }
+        };
+    </script>
+</body>
+            }
+        };
+    </script>
+</body>
+</html>
